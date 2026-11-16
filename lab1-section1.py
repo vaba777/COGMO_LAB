@@ -1,14 +1,14 @@
-def start()：
+def start():
   return 0
 
 def perceptualstep():
-  return 0 
+  return 100 
 
 def cognitivestep():
-  return 0
+  return 70
 
 def motorstep():
-  return 0
+  return 70
 
 def example1():
   total_time = (
