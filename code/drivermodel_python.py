@@ -169,7 +169,7 @@ def vehicleUpdateNotSteering():
 
 
 ### Function to run a trial. Needs to be defined by students (section 2 and 3 of assignment)
-def runTrial(nrWordsPerSentence = 17, nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving="sentence"):
+def runTrial(nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving="sentence"):
 
     locPos = [] # stores calculated lane position values
     trialTime = [] #current trial time
@@ -178,6 +178,9 @@ def runTrial(nrWordsPerSentence = 17, nrSentences = 10, nrSteeringMovementsWhenS
     position = startingPositionInLane
     dt = timeStepPerDriftUpdate / 1000 #length of one time step in seconds (50/1000=0.05s)
     
+    nrWordsPerSentence = np.random.randint(15,20) 
+    #transformed amount of words per sentence from static to uniform random draw
+
     global timePerWord
     resetParameters()
     typing_speed = np.random.normal(loc=wordsPerMinuteMean, scale=wordsPerMinuteSD)
@@ -212,6 +215,7 @@ def runTrial(nrWordsPerSentence = 17, nrSentences = 10, nrSteeringMovementsWhenS
                             locPos.append(position)
                             locColor.append("blue")
                         trialTime += steeringUpdateTime
+        return trialTime, locPos, locColor
 
     if interleaving == "sentence":
 
@@ -236,28 +240,29 @@ def runTrial(nrWordsPerSentence = 17, nrSentences = 10, nrSteeringMovementsWhenS
                     locPos.append(position)
                     locColor.append("blue")
                 trialTime += steeringUpdateTime
-
+        return trialTime, locPos, locColor
 
     if interleaving == "drivingOnly":
         
         wordTime = 60000/typing_speed
         total_time = nrSentences * (retrievalTimeSentence + nrWordsPerSentence * wordTime )
-        return total_time
 
-    while trialTime < total_time:
-        # once per steeringUpdateTime (250 ms); steer toward center
-        latVel = vehicleUpdateActiveSteering(abs(position))
-        latVel = -np.sign(position) * latVel
-        for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
-            position += latVel * dt
-            locPos.append(position)
-            locColor.append("green")
-        trialTime += steeringUpdateTime
-    return trialTime, locPos, locColor
+        while trialTime < total_time:
+            # once per steeringUpdateTime (250 ms); steer toward center
+            latVel = vehicleUpdateActiveSteering(abs(position))
+            latVel = -np.sign(position) * latVel
+            for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
+                position += latVel * dt
+                locPos.append(position)
+                locColor.append("green")
+            trialTime += steeringUpdateTime
+            
+        return trialTime, locPos, locColor
     
     if interleaving == "none":
 
-        total_typing_time = nrWordsPerSentence * nrSentences * typing_speed
+        timePerWord = 60000 / typing_speed
+        total_typing_time = nrSentences * (retrievalTimeSentence + nrWordsPerSentence * timePerWord)
         nUpdates = int(total_typing_time // timeStepPerDriftUpdate)
 
         for k in range(nUpdates):
@@ -275,7 +280,7 @@ def plotTrial(trialTime, locPos, locColor, interleaving = "none"):
     MaxPos = np.max(np.abs(locPos))
 
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.scatter(t, locPos, c=locColor, s=8)
+    ax.scatter(t, locPos, c=locColor, s=2)
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Lane position (m)")
     ax.set_title(f"Total trial time = {trialTime:.0f} ms; "
@@ -290,17 +295,75 @@ def plotTrial(trialTime, locPos, locColor, interleaving = "none"):
     plt.close(fig)
 
 
-### function to run multiple simulations. Needs to be defined by students (section 3 of assignment)
-def runSimulations(nrSims = 10):
-    results =[]
-    for _ in range(nrSims):
-        trialTime, locPos, locColor = runTrial(interleaving="none")
-        plotTrial(trialTime, locPos, locColor)
-        results.append((trialTime, np.mean(np.abs(locPos)), np.max(np.abs(locPos))))
-    return results
+### function to run multiple simulations
+def runSimulations(nrSims=100):
+    conditions = ["word", "sentence", "drivingOnly", "none"]
+
+    totalTime = []
+    meanDeviation = []
+    maxDeviation = []
+    Condition = []
+
+    for condition in conditions:
+        for _ in range(nrSims):
+            trialTime, locPos, locColor = runTrial(interleaving=condition)
+            #plotTrial(trialTime, locPos, locColor, condition)
+            totalTime.append(trialTime)
+            meanDeviation.append(np.mean(np.abs(locPos)))
+            maxDeviation.append(np.max(np.abs(locPos)))
+            Condition.append(condition)
+
+    return totalTime, meanDeviation, maxDeviation, Condition
 
 np.random.seed(49)
-results = runSimulations()
+totalTime, meanDeviation, maxDeviation, Condition  = runSimulations()
     
+def plotResults(totalTime, meanDeviation, maxDeviation, Condition):
+    totalTime = np.array(totalTime)
+    maxDeviation = np.array(maxDeviation)
+    Condition = np.array(Condition)
+
+    styles = {
+        "word":        ("o", "blue"),
+        "sentence":    ("^", "red"),
+        "drivingOnly": ("s", "green"),
+        "none":        ("x", "black"),
+    }
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    for condition, (marker, color) in styles.items():
+        mask = Condition == condition
+        times = totalTime[mask]
+        deviations = maxDeviation[mask]
+
+        ax.scatter(times, deviations, marker=marker, color="grey",
+                   s=25, alpha=0.5)
+
+        timeSD = np.std(times, ddof=1)
+        deviationSD = np.std(deviations, ddof=1)
+        timeMean = np.mean(times)
+        deviationsMean = np.mean(deviations)
+
+        ax.errorbar(np.mean(times), np.mean(deviations),
+                    xerr=timeSD, yerr=deviationSD,
+                    fmt=marker, color=color,
+                    markersize=11, markeredgewidth=2,
+                    elinewidth=1.5, capsize=5, zorder=3,
+                    label=condition)
+
+        print(f"{condition}: time SD = {timeSD:.1f} ms, "
+              f"max deviation SD = {deviationSD:.3f} m, "
+              f"time mean = {timeMean:.3f} ms, "
+              f"max deviations mean = {deviationsMean:.3f} m")
+
+    ax.set_xlabel("Total trial time (ms)")
+    ax.set_ylabel("Maximum lateral deviation (m)")
+    ax.set_title("Maximum lateral deviation by total trial time")
+    ax.legend(title="Condition (colour: mean ± 1 SD; grey: trials)")
+    fig.tight_layout()
+    plt.show()
+
+plotResults(totalTime, meanDeviation, maxDeviation, Condition)
 
 print("Script finished!")
