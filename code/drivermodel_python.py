@@ -139,7 +139,8 @@ def velocityCheckForVectors(velocityVectors):
     return velocityVectorsLoc  ### in m/s
 	
 
-## Function to determine lateral velocity (controlled with steering wheel) based on where car is currently positioned. 
+## Function to determine lateral velocity (controlled with steering wheel) 
+# based on where car is currently positioned. 
 # See Janssen & Brumby (2010) for more detailed explanation.
 ## Lateral velocity update depends on current position in lane. 
 # Intuition behind function: the further away you are, 
@@ -166,12 +167,9 @@ def vehicleUpdateNotSteering():
     returnValue = velocityCheckForVectors(vals)
     return returnValue   ### in m/s
 
-#vehicleUpdateNotSteering()
-
 
 ### Function to run a trial. Needs to be defined by students (section 2 and 3 of assignment)
-
-def runTrial(nrWordsPerSentence =5, nrSentences=3, nrSteeringMovementsWhenSteering=2, interleaving="word"):
+def runTrial(nrWordsPerSentence = 17, nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving="sentence"):
 
     locPos = [] # stores calculated lane position values
     trialTime = [] #current trial time
@@ -197,7 +195,7 @@ def runTrial(nrWordsPerSentence =5, nrSentences=3, nrSteeringMovementsWhenSteeri
                     wordTime += retrievalTimeSentence
                 nUpdates = math.floor(wordTime / timeStepPerDriftUpdate)
                 for _ in range(nUpdates):
-                    position += vehicleUpdateNotSteering() * dt
+                    position += vehicleUpdateNotSteering() * dt #to seconds
                     locPos.append(position)
                     locColor.append("red")
                 trialTime += nUpdates * timeStepPerDriftUpdate
@@ -220,19 +218,16 @@ def runTrial(nrWordsPerSentence =5, nrSentences=3, nrSteeringMovementsWhenSteeri
         timePerWord = 60000/typing_speed        #for a conversion to miniseconds (60000 ms in a minute)
 
         for sentence in range(nrSentences):
-            sentence_length = np.random.uniform(15, 20) #sentences have usually length between 15 and 20 words
-            time_sentence = timePerWord * sentence_length
+            time_sentence = retrievalTimeSentence + timePerWord * nrWordsPerSentence
             
-
             nUpdates = math.floor(time_sentence / timeStepPerDriftUpdate) #amount of positional updates per sentence
-            #this will be a way higher number than for the words
+            #nUpdates this will be a way higher number than for the words
             for _ in range(nUpdates):
                 position += vehicleUpdateNotSteering() * dt #dt for measurement in seconds 
                 locPos.append(position)
                 locColor.append("red")
             trialTime += nUpdates * timeStepPerDriftUpdate
 
-           
             for _ in range(nrSteeringMovementsWhenSteering):
                 latVel = vehicleUpdateActiveSteering(abs(position))
                 latVel = -np.sign(position) * latVel #abs() and -np.sign to get negative values
@@ -242,29 +237,70 @@ def runTrial(nrWordsPerSentence =5, nrSentences=3, nrSteeringMovementsWhenSteeri
                     locColor.append("blue")
                 trialTime += steeringUpdateTime
 
+
+    if interleaving == "drivingOnly":
+        
+        wordTime = 60000/typing_speed
+        total_time = nrSentences * (retrievalTimeSentence + nrWordsPerSentence * wordTime )
+        return total_time
+
+    while trialTime < total_time:
+        # once per steeringUpdateTime (250 ms); steer toward center
+        latVel = vehicleUpdateActiveSteering(abs(position))
+        latVel = -np.sign(position) * latVel
+        for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
+            position += latVel * dt
+            locPos.append(position)
+            locColor.append("green")
+        trialTime += steeringUpdateTime
     return trialTime, locPos, locColor
     
-    
-def plotTrial(trialTime, locPos, locColor):
+    if interleaving == "none":
+
+        total_typing_time = nrWordsPerSentence * nrSentences * typing_speed
+        nUpdates = int(total_typing_time // timeStepPerDriftUpdate)
+
+        for k in range(nUpdates):
+            position += vehicleUpdateNotSteering() * dt #dt for measurement in seconds 
+            locPos.append(position)
+            locColor.append("yellow")
+        trialTime = total_typing_time
+
+        return trialTime, locPos, locColor
+
+
+def plotTrial(trialTime, locPos, locColor, interleaving = "none"):
     t = (np.arange(len(locPos)) + 1) * timeStepPerDriftUpdate   # ms
-    plt.scatter(t, locPos, c=locColor, s=8)
-    plt.xlabel("Time (ms)")
-    plt.ylabel("Lane position (m)")
-    plt.title(f"Total trial time = {trialTime:.0f} ms; "
-              f"Mean position on the road = {np.mean(locPos):.3f} m; "
-              f"Max position on the road (Absolute) = {np.max(np.abs(locPos)):.3f} m",
+    meanPos = np.mean(locPos)
+    MaxPos = np.max(np.abs(locPos))
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.scatter(t, locPos, c=locColor, s=8)
+    ax.set_xlabel("Time (ms)")
+    ax.set_ylabel("Lane position (m)")
+    ax.set_title(f"Total trial time = {trialTime:.0f} ms; "
+              f"Mean position on the road = {meanPos:.3f} m; "
+              f"Max position on the road (Absolute) = {MaxPos:.3f} m",
               fontsize=8)
+    fig.tight_layout()
+    if runTrial(interleaving = "word"):
+        plt.savefig(f"output/{interleaving}_{trialTime:.0f}_{meanPos:.3f}_{MaxPos:.3f}.png")
+    
     plt.show()
-
-np.random.seed(49)
-trialTime, locPos, locColor = runTrial(interleaving="word")
-plotTrial(trialTime, locPos, locColor)
-
+    plt.close(fig)
 
 
 ### function to run multiple simulations. Needs to be defined by students (section 3 of assignment)
-def runSimulations(nrSims = 100):
-    print("hello world")
+def runSimulations(nrSims = 10):
+    results =[]
+    for _ in range(nrSims):
+        trialTime, locPos, locColor = runTrial(interleaving="none")
+        plotTrial(trialTime, locPos, locColor)
+        results.append((trialTime, np.mean(np.abs(locPos)), np.max(np.abs(locPos))))
+    return results
 
+np.random.seed(49)
+results = runSimulations()
+    
 
 print("Script finished!")
