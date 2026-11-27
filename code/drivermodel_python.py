@@ -18,8 +18,6 @@
 ### import packages
 ###
 
-import math
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -170,7 +168,12 @@ def vehicleUpdateNotSteering():
 
 ### Function to run a trial. Needs to be defined by students (section 2 and 3 of assignment)
 def runTrial(nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving="sentence"):
+    
+    global timePerWord
+    resetParameters()
 
+    minWPM = 14.9   # observed two-thumb range, Jiang et al. (2020)
+    maxWPM = 58.4
     locPos = [] # stores calculated lane position values
     trialTime = [] #current trial time
     locColor = [] #stores color for plot 
@@ -178,30 +181,35 @@ def runTrial(nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving
     position = startingPositionInLane
     dt = timeStepPerDriftUpdate / 1000 #length of one time step in seconds (50/1000=0.05s)
     
-    nrWordsPerSentence = np.random.randint(15,20) 
+    nrWordsPerSentence = np.random.randint(15,21) 
     #transformed amount of words per sentence from static to uniform random draw
 
-    global timePerWord
-    resetParameters()
+    
     typing_speed = np.random.normal(loc=wordsPerMinuteMean, scale=wordsPerMinuteSD)
+    while not (minWPM <= typing_speed <= maxWPM):
+        typing_speed = np.random.normal(loc=wordsPerMinuteMean, scale=wordsPerMinuteSD)
 
     if interleaving == "word":
 
         timePerWord = 60000/typing_speed        #for a conversion to miniseconds (60000 ms in a minute)
-
+        typingTime = 0   
+        doneUpdates = 0
         for sentence in range(nrSentences):
             for word in range(nrWordsPerSentence): #nested loop for each word over all sentences
-                
                 #typing:no steering car drifts
                 wordTime = timePerWord + retrievalTimeWord
                 if word == 0:
                     wordTime += retrievalTimeSentence
-                nUpdates = math.floor(wordTime / timeStepPerDriftUpdate)
+
+                typingTime += wordTime
+                nUpdates = int(typingTime // timeStepPerDriftUpdate) - doneUpdates
+                doneUpdates += nUpdates
+
                 for _ in range(nUpdates):
                     position += vehicleUpdateNotSteering() * dt #to seconds
                     locPos.append(position)
                     locColor.append("red")
-                trialTime += nUpdates * timeStepPerDriftUpdate
+                trialTime += wordTime
 
                  # steering, except after the very last word
                 lastWord = (sentence == nrSentences - 1 and word == nrWordsPerSentence - 1)
@@ -220,59 +228,68 @@ def runTrial(nrSentences = 10, nrSteeringMovementsWhenSteering = 4, interleaving
     if interleaving == "sentence":
 
         timePerWord = 60000/typing_speed        #for a conversion to miniseconds (60000 ms in a minute)
+        typingTime = 0
+        doneUpdates = 0
 
         for sentence in range(nrSentences):
             time_sentence = retrievalTimeSentence + timePerWord * nrWordsPerSentence
             
-            nUpdates = math.floor(time_sentence / timeStepPerDriftUpdate) #amount of positional updates per sentence
-            #nUpdates this will be a way higher number than for the words
+            typingTime += time_sentence
+            nUpdates = int(typingTime // timeStepPerDriftUpdate) - doneUpdates
+            doneUpdates += nUpdates
+
+            
             for _ in range(nUpdates):
                 position += vehicleUpdateNotSteering() * dt #dt for measurement in seconds 
                 locPos.append(position)
                 locColor.append("red")
-            trialTime += nUpdates * timeStepPerDriftUpdate
+            trialTime += time_sentence
 
-            for _ in range(nrSteeringMovementsWhenSteering):
-                latVel = vehicleUpdateActiveSteering(abs(position))
-                latVel = -np.sign(position) * latVel #abs() and -np.sign to get negative values
-                for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
-                    position += latVel * dt #measurement in seconds
-                    locPos.append(position)
-                    locColor.append("blue")
-                trialTime += steeringUpdateTime
+            # steering, except after the very last sentence
+            lastSentence = sentence == nrSentences - 1
+            if not lastSentence:
+                for _ in range(nrSteeringMovementsWhenSteering):
+                    latVel = vehicleUpdateActiveSteering(abs(position))
+                    latVel = -np.sign(position) * latVel  # steer based on side of lane
+                    for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
+                        position += latVel * dt
+                        locPos.append(position)
+                        locColor.append("blue")
+                    trialTime += steeringUpdateTime
+
         return trialTime, locPos, locColor
 
     if interleaving == "drivingOnly":
         
         wordTime = 60000/typing_speed
         total_time = nrSentences * (retrievalTimeSentence + nrWordsPerSentence * wordTime )
+        nUpdates = int(total_time // timeStepPerDriftUpdate)
+        stepsPerSteering = steeringUpdateTime // timeStepPerDriftUpdate    
 
-        while trialTime < total_time:
-            # once per steeringUpdateTime (250 ms); steer toward center
-            latVel = vehicleUpdateActiveSteering(abs(position))
-            latVel = -np.sign(position) * latVel
-            for _ in range(steeringUpdateTime // timeStepPerDriftUpdate):
-                position += latVel * dt
-                locPos.append(position)
-                locColor.append("green")
-            trialTime += steeringUpdateTime
-            
+        for k in range(nUpdates):
+            if k % stepsPerSteering == 0:
+                latVel = vehicleUpdateActiveSteering(abs(position))
+                latVel = -np.sign(position) * latVel
+            position += latVel * dt
+            locPos.append(position)
+            locColor.append("green")
+        trialTime = total_time
+
         return trialTime, locPos, locColor
     
     if interleaving == "none":
 
-        timePerWord = 60000 / typing_speed
+        timePerWord = 60000 / typing_speed  # ms per word
         total_typing_time = nrSentences * (retrievalTimeSentence + nrWordsPerSentence * timePerWord)
         nUpdates = int(total_typing_time // timeStepPerDriftUpdate)
 
-        for k in range(nUpdates):
-            position += vehicleUpdateNotSteering() * dt #dt for measurement in seconds 
+        for _ in range(nUpdates):
+            position += vehicleUpdateNotSteering() * dt  # dt in seconds
             locPos.append(position)
             locColor.append("yellow")
         trialTime = total_typing_time
 
         return trialTime, locPos, locColor
-
 
 def plotTrial(trialTime, locPos, locColor, interleaving = "none"):
     t = (np.arange(len(locPos)) + 1) * timeStepPerDriftUpdate   # ms
